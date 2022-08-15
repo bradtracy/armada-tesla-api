@@ -1,0 +1,4 @@
+#add files to ignore from git
+cache.json
+venv/
+.idea/
