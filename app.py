@@ -1,24 +1,55 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, status
 import teslapy
 import zoneinfo
 from datetime import datetime, timedelta
-from pydantic import BaseModel
+from pydantic.dataclasses import dataclass
 
 app = FastAPI()
 PAC = zoneinfo.ZoneInfo('America/Los_Angeles')
 
+@dataclass
+class User:
+    def __init__(self, state, code_verifier):
+        self.state = state
+        self.code_verifier = code_verifier
 
-class User(BaseModel):
-    email: str
-    pw: str
+    state: str
+    code_verifier: str
 
+
+new_users = {}
+
+@app.post("/tesla-url/")
+async def get_tesla_url(username: str):
+    tesla = teslapy.Tesla(username)
+    if not tesla.authorized:
+        state = tesla.new_state()
+        code_verifier = tesla.new_code_verifier()
+        auth_url = tesla.authorization_url(state=state, code_verifier=code_verifier)
+        new_user = User(state, code_verifier)
+        new_users[username] = new_user
+        return auth_url
+    tesla.close()
+
+
+@app.post("/token-from-callback/", status_code=status.HTTP_201_CREATED)
+async def get_tesla_token(username: str, url: str):
+    current_user = new_users[username]
+    tesla = teslapy.Tesla(username, state=current_user.state, code_verifier=current_user.code_verifier)
+    if not tesla.authorized:
+        tesla.fetch_token(authorization_response=url)
+    tesla.close()
+    new_users.pop(username)
+    return 201
 
 @app.post("/token/")
-async def get_token(user: User):
+async def get_token_v1(user: User):
     print(user.email)
     print(user.pw)
 
     with teslapy.Tesla(user.email) as tesla:
+        # print(tesla.authorization_url())
+        # print(tesla.redirect_uri)
         response = tesla.fetch_token()
 
     expires_at = datetime.fromtimestamp(response['expires_at'], tz=PAC)
@@ -35,13 +66,49 @@ async def get_token(user: User):
 
 
 @app.post("/vehicles/")
-async def get_vehicles(user: User):
-    with teslapy.Tesla(user.email) as tesla:
+async def get_vehicles(username: str):
+    with teslapy.Tesla(username) as tesla:
         vehicles = tesla.vehicle_list()
-        # vehicles[0].sync_wake_up()
-        # vehicles[0].command('ACTUATE_TRUNK', which_trunk='front')
-        # vehicles[0].get_vehicle_data()
-        # print(vehicles[0]['vehicle_state']['car_version'])
         return vehicles
 
 
+@app.post("/vehicle/honk")
+async def honk_horn(username: str):
+    with teslapy.Tesla(username) as tesla:
+        vehicles = tesla.vehicle_list()
+        vehicles[0].sync_wake_up()
+        try:
+            vehicles[0].command('HONK_HORN')
+        except teslapy.HTTPError as e:
+            print(e)
+
+
+@app.post("/vehicle/lights")
+async def flash_lights(username: str):
+    with teslapy.Tesla(username) as tesla:
+        vehicles = tesla.vehicle_list()
+        vehicles[0].sync_wake_up()
+        try:
+            vehicles[0].command('FLASH_LIGHTS')
+        except teslapy.HTTPError as e:
+            print(e)
+
+
+@app.post("/vehicle/trunk")
+async def open_trunk(username: str, location: str):
+    with teslapy.Tesla(username) as tesla:
+        vehicles = tesla.vehicle_list()
+        vehicles[0].sync_wake_up()
+        # rear or front
+        try:
+            vehicles[0].command('ACTUATE_TRUNK', which_trunk=location)
+        except teslapy.HTTPError as e:
+            print(e)
+
+
+@app.post("/vehicle/data")
+async def get_vehicle_data(username: str):
+    with teslapy.Tesla(username) as tesla:
+        vehicles = tesla.vehicle_list()
+        vdata = vehicles[0].get_vehicle_data()
+        return vdata
