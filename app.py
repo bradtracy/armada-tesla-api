@@ -1,11 +1,27 @@
 from fastapi import FastAPI, status
+from fastapi.middleware.cors import CORSMiddleware
 import teslapy
 import zoneinfo
 from datetime import datetime, timedelta
 from pydantic.dataclasses import dataclass
 
 app = FastAPI()
+
+origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:8000"
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 PAC = zoneinfo.ZoneInfo('America/Los_Angeles')
+
 
 @dataclass
 class User:
@@ -19,7 +35,8 @@ class User:
 
 new_users = {}
 
-@app.post("/tesla-url/")
+
+@app.get("/tesla-url/{username}")
 async def get_tesla_url(username: str):
     tesla = teslapy.Tesla(username)
     if not tesla.authorized:
@@ -42,12 +59,11 @@ async def get_tesla_token(username: str, url: str):
     new_users.pop(username)
     return 201
 
-@app.post("/token/")
-async def get_token_v1(user: User):
-    print(user.email)
-    print(user.pw)
 
-    with teslapy.Tesla(user.email) as tesla:
+@app.post("/token/")
+async def get_token_v1(username: str):
+
+    with teslapy.Tesla(username) as tesla:
         # print(tesla.authorization_url())
         # print(tesla.redirect_uri)
         response = tesla.fetch_token()
@@ -65,7 +81,7 @@ async def get_token_v1(user: User):
     return access_token
 
 
-@app.post("/vehicles/")
+@app.get("/vehicles/{username}")
 async def get_vehicles(username: str):
     with teslapy.Tesla(username) as tesla:
         vehicles = tesla.vehicle_list()
@@ -98,17 +114,23 @@ async def flash_lights(username: str):
 async def open_trunk(username: str, location: str):
     with teslapy.Tesla(username) as tesla:
         vehicles = tesla.vehicle_list()
-        vehicles[0].sync_wake_up()
-        # rear or front
-        try:
-            vehicles[0].command('ACTUATE_TRUNK', which_trunk=location)
-        except teslapy.HTTPError as e:
-            print(e)
+        if len(vehicles) < 1:
+            return 404
+        else:
+            vehicles[0].sync_wake_up()
+            # rear or front
+            try:
+                vehicles[0].command('ACTUATE_TRUNK', which_trunk=location)
+            except teslapy.HTTPError as e:
+                print(e)
 
 
-@app.post("/vehicle/data")
+@app.get("/vehicle/data/{username}")
 async def get_vehicle_data(username: str):
     with teslapy.Tesla(username) as tesla:
         vehicles = tesla.vehicle_list()
-        vdata = vehicles[0].get_vehicle_data()
-        return vdata
+        if len(vehicles) < 1:
+            return 404
+        else:
+            vdata = vehicles[0].get_vehicle_data()
+            return vdata
