@@ -1,3 +1,13 @@
+Assumes you have an active Tesla account
+
+open project in ide
+
+init venv ( if not automatic )
+- source venv/bin/activate
+
+install requirements if first time
+- pip install -r requirements.txt
+
 in terminal run: 
     uvicorn app:app --reload
 
